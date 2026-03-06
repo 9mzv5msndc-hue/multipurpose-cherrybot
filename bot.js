@@ -209,17 +209,15 @@ bot.onText(/\/roleinfo(?:\s+(.+))?/, async (msg, match) => {
   } catch { await bot.sendMessage(msg.chat.id, "❌ Error al obtener info de rol."); }
 });
 
-// ─── MODERATION COMMANDS ──────────────────────────────────
-
 // ─── MESSAGE LOG (stores last 500 messages per chat) ──────
 
 const messageLog = new Map();
 
-bot.on("message", async (msg) => {
-  if (!msg.text && !msg.photo && !msg.video && !msg.sticker) return;
+function logMessage(msg) {
+  if (!msg || !msg.from) return;
   const chatId = msg.chat.id;
-  const userId = msg.from?.id;
-  const username = msg.from?.username?.toLowerCase();
+  const userId = msg.from.id;
+  const username = msg.from.username?.toLowerCase();
   const messageId = msg.message_id;
 
   if (!messageLog.has(chatId)) {
@@ -229,11 +227,13 @@ bot.on("message", async (msg) => {
   const log = messageLog.get(chatId);
   log.push({ messageId, userId, username });
 
-  // Keep only last 500 messages per chat
   if (log.length > 500) log.shift();
-});
+}
 
 // ─── MODERATION COMMANDS ──────────────────────────────────
+bot.on("message", async (msg) => {
+  logMessage(msg);
+  if (!msg.text?.includes("@all")) return;
 
 bot.onText(/\/purge(?:\s+(\d+))?(?:\s+@(\S+))?/, async (msg, match) => {
   const chatId = msg.chat.id;
