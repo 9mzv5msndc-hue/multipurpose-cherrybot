@@ -526,14 +526,24 @@ bot.on("message", async (msg) => {
   }
 
   // Someone left
+    // Someone left or was removed
   if (msg.left_chat_member) {
     const user = msg.left_chat_member;
-    await bot.sendMessage(chatId,
-      `👋 *Miembro salió*\n${DIVIDER}\n` +
-      `👤 ${user.first_name}${user.last_name ? " " + user.last_name : ""}\n` +
-      `🔖 ${user.username ? "@" + user.username : "Sin username"}\n` +
-      `🔢 ID: \`${user.id}\``,
-      { parse_mode: "Markdown" });
+    const removedBy = msg.from;
+    const wasKicked = removedBy && removedBy.id !== user.id;
+
+    const action = wasKicked
+      ? `🚫 *Miembro eliminado*\n${DIVIDER}\n` +
+        `👤 ${user.first_name}${user.last_name ? " " + user.last_name : ""}\n` +
+        `🔖 ${user.username ? "@" + user.username : "Sin username"}\n` +
+        `🔢 ID: \`${user.id}\`\n` +
+        `👮 Eliminado por: ${removedBy.first_name}${removedBy.username ? " (@" + removedBy.username + ")" : ""}`
+      : `👋 *Miembro salió*\n${DIVIDER}\n` +
+        `👤 ${user.first_name}${user.last_name ? " " + user.last_name : ""}\n` +
+        `🔖 ${user.username ? "@" + user.username : "Sin username"}\n` +
+        `🔢 ID: \`${user.id}\``;
+
+    await bot.sendMessage(chatId, action, { parse_mode: "Markdown" });
   }
 
   // Group title changed
