@@ -389,6 +389,100 @@ bot.onText(/\/help/, async (msg) => {
     { parse_mode: "Markdown" });
 });
 
+// ─── CHAT & USER UPDATE TRACKER ──────────────────────────
+
+bot.on("message", async (msg) => {
+  const chatId = msg.chat.id;
+
+  // Someone changed their username/name
+  if (msg.new_chat_member) {
+    const user = msg.new_chat_member;
+    await bot.sendMessage(chatId,
+      `👋 *Nuevo miembro*\n${DIVIDER}\n` +
+      `👤 ${user.first_name}${user.last_name ? " " + user.last_name : ""}\n` +
+      `🔖 ${user.username ? "@" + user.username : "Sin username"}\n` +
+      `🔢 ID: \`${user.id}\``,
+      { parse_mode: "Markdown" });
+  }
+
+  // Someone left
+  if (msg.left_chat_member) {
+    const user = msg.left_chat_member;
+    await bot.sendMessage(chatId,
+      `👋 *Miembro salió*\n${DIVIDER}\n` +
+      `👤 ${user.first_name}${user.last_name ? " " + user.last_name : ""}\n` +
+      `🔖 ${user.username ? "@" + user.username : "Sin username"}\n` +
+      `🔢 ID: \`${user.id}\``,
+      { parse_mode: "Markdown" });
+  }
+
+  // Group title changed
+  if (msg.new_chat_title) {
+    await bot.sendMessage(chatId,
+      `✏️ *Nombre del grupo cambiado*\n${DIVIDER}\n` +
+      `📛 Nuevo nombre: *${msg.new_chat_title}*\n` +
+      `👤 Cambiado por: ${msg.from?.first_name || "Desconocido"}`,
+      { parse_mode: "Markdown" });
+  }
+
+  // Group photo changed
+  if (msg.new_chat_photo) {
+    await bot.sendMessage(chatId,
+      `🖼 *Foto del grupo cambiada*\n${DIVIDER}\n` +
+      `👤 Cambiado por: ${msg.from?.first_name || "Desconocido"}`,
+      { parse_mode: "Markdown" });
+  }
+
+  // Group photo deleted
+  if (msg.delete_chat_photo) {
+    await bot.sendMessage(chatId,
+      `🗑 *Foto del grupo eliminada*\n${DIVIDER}\n` +
+      `👤 Eliminado por: ${msg.from?.first_name || "Desconocido"}`,
+      { parse_mode: "Markdown" });
+  }
+
+  // Pinned message
+  if (msg.pinned_message) {
+    await bot.sendMessage(chatId,
+      `📌 *Mensaje anclado*\n${DIVIDER}\n` +
+      `👤 Anclado por: ${msg.from?.first_name || "Desconocido"}`,
+      { parse_mode: "Markdown" });
+  }
+});
+
+// Track username changes via chat_member updates
+bot.on("chat_member", async (update) => {
+  const chatId = update.chat.id;
+  const oldUser = update.old_chat_member.user;
+  const newUser = update.new_chat_member.user;
+
+  const changes = [];
+
+  if (oldUser.username !== newUser.username) {
+    changes.push(
+      `🔖 *Username cambiado*\n` +
+      `  Antes: ${oldUser.username ? "@" + oldUser.username : "Sin username"}\n` +
+      `  Ahora: ${newUser.username ? "@" + newUser.username : "Sin username"}`
+    );
+  }
+
+  if (oldUser.first_name !== newUser.first_name || oldUser.last_name !== newUser.last_name) {
+    changes.push(
+      `📛 *Nombre cambiado*\n` +
+      `  Antes: ${oldUser.first_name}${oldUser.last_name ? " " + oldUser.last_name : ""}\n` +
+      `  Ahora: ${newUser.first_name}${newUser.last_name ? " " + newUser.last_name : ""}`
+    );
+  }
+
+  if (changes.length > 0) {
+    await bot.sendMessage(chatId,
+      `🔔 *Actualización de Usuario*\n${DIVIDER}\n` +
+      `👤 Usuario: ${newUser.first_name} (\`${newUser.id}\`)\n` +
+      changes.join("\n") + `\n${DIVIDER}`,
+      { parse_mode: "Markdown" });
+  }
+});
+
 // ─── ERROR HANDLER ────────────────────────────────────────
 
 bot.on("polling_error", (error) => {
