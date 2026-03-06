@@ -5,11 +5,7 @@ import os from “os”;
 // ─── SETUP ────────────────────────────────────────────────
 
 const TOKEN = process.env.TELEGRAM_TOKEN;
-
-if (!TOKEN) {
-console.error(“❌ TELEGRAM_TOKEN no está configurado.”);
-process.exit(1);
-}
+if (!TOKEN) { console.error(“❌ TELEGRAM_TOKEN no está configurado.”); process.exit(1); }
 
 const bot = new TelegramBot(TOKEN, { polling: true });
 const startTime = new Date();
@@ -17,15 +13,22 @@ const DIVIDER = “━━━━━━━━━━━━━━━━━━”;
 
 console.log(“✅ Bot iniciado correctamente.”);
 
+// ─── COMMAND MATCHING ─────────────────────────────────────
+// Supports both /command and !command (with optional @BotUsername suffix)
+function cmd(command) {
+return new RegExp(`^[!/]${command}(?:@\\S+)?(?:\\s+(.+))?$`, “i”);
+}
+function cmdExact(command) {
+return new RegExp(`^[!/]${command}(?:@\\S+)?$`, “i”);
+}
+
 // ─── HELPERS ──────────────────────────────────────────────
 
 async function isAdmin(chatId, userId) {
 try {
 const member = await bot.getChatMember(chatId, userId);
 return [“administrator”, “creator”].includes(member.status);
-} catch {
-return false;
-}
+} catch { return false; }
 }
 
 async function botIsAdmin(chatId) {
@@ -33,9 +36,7 @@ try {
 const me = await bot.getMe();
 const member = await bot.getChatMember(chatId, me.id);
 return [“administrator”, “creator”].includes(member.status);
-} catch {
-return false;
-}
+} catch { return false; }
 }
 
 async function sendTemp(chatId, text) {
@@ -57,9 +58,8 @@ return `${d}d ${h}h ${m}m ${s}s`;
 function parseDuration(str) {
 const match = str.match(/^(\d+)(s|m|h|d)$/);
 if (!match) return null;
-const value = parseInt(match[1]);
 const multipliers = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
-return value * multipliers[match[2]];
+return parseInt(match[1]) * multipliers[match[2]];
 }
 
 async function getTarget(msg, args) {
@@ -73,9 +73,27 @@ return member.user;
 return msg.from || null;
 }
 
+function isGroup(msg) {
+return [“group”, “supergroup”].includes(msg.chat.type);
+}
+
+// ─── MESSAGE LOG ──────────────────────────────────────────
+
+const messageLog = new Map();
+
+function logMessage(msg) {
+if (!msg || !msg.from) return;
+const log = messageLog.get(msg.chat.id) || [];
+log.push({ messageId: msg.message_id, userId: msg.from.id, username: msg.from.username?.toLowerCase() });
+if (log.length > 500) log.shift();
+messageLog.set(msg.chat.id, log);
+}
+
+bot.on(“message”, (msg) => logMessage(msg));
+
 // ─── INFO COMMANDS ────────────────────────────────────────
 
-bot.onText(//id/, async (msg) => {
+bot.onText(cmdExact(“id”), async (msg) => {
 const target = msg.reply_to_message?.from || msg.from;
 if (!target) return;
 await bot.sendMessage(msg.chat.id,
@@ -83,31 +101,32 @@ await bot.sendMessage(msg.chat.id,
 { parse_mode: “Markdown” });
 });
 
-bot.onText(//userinfo(?:\s+(.+))?/, async (msg, match) => {
+bot.onText(cmd(“userinfo”), async (msg, match) => {
 try {
 const args = match?.[1]?.trim().split(” “) || [];
 const target = await getTarget(msg, args);
 if (!target) { await bot.sendMessage(msg.chat.id, “❌ No se pudo encontrar al usuario.”); return; }
-const member = await bot.getChatMember(msg.chat.id, target.id);
+const member = isGroup(msg) ? await bot.getChatMember(msg.chat.id, target.id) : null;
 const statusMap = { creator: “👑 Creador”, administrator: “🛡 Admin”, member: “👤 Miembro”, restricted: “🚫 Restringido”, left: “🚪 Se fue”, kicked: “❌ Expulsado” };
 await bot.sendMessage(msg.chat.id,
 `👤 *Info de Usuario*\n${DIVIDER}\n` +
 `📛 Nombre: ${target.first_name}${target.last_name ? " " + target.last_name : ""}\n` +
 `🔖 Username: ${target.username ? "@" + target.username : "Sin username"}\n` +
-`🔢 ID: \`${target.id}`\n`+`🤖 Es bot: ${target.is_bot ? “Sí” : “No”}\n`+`📊 Estado: ${statusMap[member.status] || member.status}\n${DIVIDER}`,
+`🔢 ID: \`${target.id}`\n`+`🤖 Es bot: ${target.is_bot ? “Sí” : “No”}\n`+ (member ?`📊 Estado: ${statusMap[member.status] || member.status}\n` : “”) +
+DIVIDER,
 { parse_mode: “Markdown” });
 } catch { await bot.sendMessage(msg.chat.id, “❌ Error al obtener info del usuario.”); }
 });
 
-bot.onText(//whois(?:\s+(.+))?/, async (msg, match) => {
+bot.onText(cmd(“whois”), async (msg, match) => {
 try {
 const args = match?.[1]?.trim().split(” “) || [];
 const target = await getTarget(msg, args);
 if (!target) { await bot.sendMessage(msg.chat.id, “❌ No se pudo encontrar al usuario.”); return; }
-const member = await bot.getChatMember(msg.chat.id, target.id);
+const member = isGroup(msg) ? await bot.getChatMember(msg.chat.id, target.id) : null;
 const statusMap = { creator: “👑 Creador”, administrator: “🛡 Admin”, member: “👤 Miembro”, restricted: “🚫 Restringido”, left: “🚪 Se fue”, kicked: “❌ Expulsado” };
 let adminInfo = “”;
-if (member.status === “administrator”) {
+if (member?.status === “administrator”) {
 adminInfo = `\n🔧 *Permisos:*\n` +
 ` • Borrar mensajes: ${member.can_delete_messages ? "✅" : "❌"}\n` +
 ` • Banear: ${member.can_restrict_members ? "✅" : "❌"}\n` +
@@ -117,12 +136,13 @@ await bot.sendMessage(msg.chat.id,
 `🔍 *Info Extendida*\n${DIVIDER}\n` +
 `📛 Nombre: ${target.first_name}${target.last_name ? " " + target.last_name : ""}\n` +
 `🔖 Username: ${target.username ? "@" + target.username : "Sin username"}\n` +
-`🔢 ID: \`${target.id}`\n`+`🌐 Idioma: ${target.language_code || “Desconocido”}\n`+`🤖 Es bot: ${target.is_bot ? “Sí” : “No”}\n`+`✅ Premium: ${target.is_premium ? “Sí” : “No”}\n`+`📊 Estado: ${statusMap[member.status] || member.status}${adminInfo}\n${DIVIDER}`,
+`🔢 ID: \`${target.id}`\n`+`🌐 Idioma: ${target.language_code || “Desconocido”}\n`+`🤖 Es bot: ${target.is_bot ? “Sí” : “No”}\n`+`✅ Premium: ${target.is_premium ? “Sí” : “No”}\n`+ (member ?`📊 Estado: ${statusMap[member.status] || member.status}${adminInfo}\n` : “”) +
+DIVIDER,
 { parse_mode: “Markdown” });
 } catch { await bot.sendMessage(msg.chat.id, “❌ Error al obtener info del usuario.”); }
 });
 
-bot.onText(//pfp(?:\s+(.+))?/, async (msg, match) => {
+bot.onText(cmd(“pfp”), async (msg, match) => {
 try {
 const args = match?.[1]?.trim().split(” “) || [];
 const target = await getTarget(msg, args);
@@ -130,13 +150,12 @@ if (!target) { await bot.sendMessage(msg.chat.id, “❌ No se pudo encontrar al
 const photos = await bot.getUserProfilePhotos(target.id);
 if (photos.total_count === 0) { await bot.sendMessage(msg.chat.id, “❌ Este usuario no tiene fotos de perfil.”); return; }
 for (const photoSizes of photos.photos) {
-const largest = photoSizes[photoSizes.length - 1];
-await bot.sendPhoto(msg.chat.id, largest.file_id, { caption: `📸 Foto de perfil de ${target.first_name}` });
+await bot.sendPhoto(msg.chat.id, photoSizes[photoSizes.length - 1].file_id, { caption: `📸 Foto de perfil de ${target.first_name}` });
 }
 } catch { await bot.sendMessage(msg.chat.id, “❌ No se pudo obtener la foto de perfil.”); }
 });
 
-bot.onText(//avatar(?:\s+(.+))?/, async (msg, match) => {
+bot.onText(cmd(“avatar”), async (msg, match) => {
 try {
 const args = match?.[1]?.trim().split(” “) || [];
 const target = await getTarget(msg, args);
@@ -144,15 +163,15 @@ if (!target) { await bot.sendMessage(msg.chat.id, “❌ No se pudo encontrar al
 const photos = await bot.getUserProfilePhotos(target.id);
 if (photos.total_count === 0) { await bot.sendMessage(msg.chat.id, “❌ Este usuario no tiene fotos de perfil.”); return; }
 for (const photoSizes of photos.photos) {
-const largest = photoSizes[photoSizes.length - 1];
-await bot.sendPhoto(msg.chat.id, largest.file_id, { caption: `🖼 Avatar de ${target.first_name}` });
+await bot.sendPhoto(msg.chat.id, photoSizes[photoSizes.length - 1].file_id, { caption: `🖼 Avatar de ${target.first_name}` });
 }
 } catch { await bot.sendMessage(msg.chat.id, “❌ No se pudo obtener el avatar.”); }
 });
 
 // ─── GROUP INFO COMMANDS ──────────────────────────────────
 
-bot.onText(//(serverinfo|chatstats)/, async (msg) => {
+bot.onText(/^[!/](serverinfo|chatstats)(?:@\S+)?$/i, async (msg) => {
+if (!isGroup(msg)) { await bot.sendMessage(msg.chat.id, “❌ Este comando solo funciona en grupos.”); return; }
 try {
 const chat = await bot.getChat(msg.chat.id);
 const memberCount = await bot.getChatMemberCount(msg.chat.id);
@@ -165,14 +184,16 @@ await bot.sendMessage(msg.chat.id,
 } catch { await bot.sendMessage(msg.chat.id, “❌ Error al obtener info del grupo.”); }
 });
 
-bot.onText(//members/, async (msg) => {
+bot.onText(cmdExact(“members”), async (msg) => {
+if (!isGroup(msg)) { await bot.sendMessage(msg.chat.id, “❌ Este comando solo funciona en grupos.”); return; }
 try {
 const count = await bot.getChatMemberCount(msg.chat.id);
 await bot.sendMessage(msg.chat.id, `👥 *Miembros*\n${DIVIDER}\nTotal: *${count}* miembros`, { parse_mode: “Markdown” });
 } catch { await bot.sendMessage(msg.chat.id, “❌ Error al obtener miembros.”); }
 });
 
-bot.onText(//admins/, async (msg) => {
+bot.onText(cmdExact(“admins”), async (msg) => {
+if (!isGroup(msg)) { await bot.sendMessage(msg.chat.id, “❌ Este comando solo funciona en grupos.”); return; }
 try {
 const admins = await bot.getChatAdministrators(msg.chat.id);
 let text = `🛡 *Administradores*\n${DIVIDER}\n`;
@@ -184,7 +205,8 @@ await bot.sendMessage(msg.chat.id, text + DIVIDER, { parse_mode: “Markdown” 
 } catch { await bot.sendMessage(msg.chat.id, “❌ Error al obtener admins.”); }
 });
 
-bot.onText(//roleinfo(?:\s+(.+))?/, async (msg, match) => {
+bot.onText(cmd(“roleinfo”), async (msg, match) => {
+if (!isGroup(msg)) { await bot.sendMessage(msg.chat.id, “❌ Este comando solo funciona en grupos.”); return; }
 try {
 const args = match?.[1]?.trim().split(” “) || [];
 const target = await getTarget(msg, args);
@@ -199,118 +221,57 @@ await bot.sendMessage(msg.chat.id,
 } catch { await bot.sendMessage(msg.chat.id, “❌ Error al obtener info de rol.”); }
 });
 
-// ─── MESSAGE LOG (stores last 500 messages per chat) ──────
-
-const messageLog = new Map();
-
-// FIX: logMessage is called in a single top-level message handler, not scattered
-bot.on(“message”, async (msg) => {
-logMessage(msg);
-});
-
-function logMessage(msg) {
-if (!msg || !msg.from) return;
-const chatId = msg.chat.id;
-const userId = msg.from.id;
-const username = msg.from.username?.toLowerCase();
-const messageId = msg.message_id;
-if (!messageLog.has(chatId)) {
-messageLog.set(chatId, []);
-}
-const log = messageLog.get(chatId);
-log.push({ messageId, userId, username });
-if (log.length > 500) log.shift();
-}
-
 // ─── MODERATION COMMANDS ──────────────────────────────────
 
-// FIX: /purge is now a top-level handler, NOT nested inside bot.on(“message”)
-bot.onText(//purge(?:\s+(\d+))?(?:\s+@(\S+))?/, async (msg, match) => {
+bot.onText(/^[!/]purge(?:@\S+)?(?:\s+(\d+))?(?:\s+@(\S+))?$/i, async (msg, match) => {
+if (!isGroup(msg)) { await bot.sendMessage(msg.chat.id, “❌ Este comando solo funciona en grupos.”); return; }
 const chatId = msg.chat.id;
 const userId = msg.from?.id;
 if (!userId) return;
-
-if (!await isAdmin(chatId, userId)) {
-await sendTemp(chatId, “❌ Solo los administradores pueden usar /purge.”);
-return;
-}
-
-if (!await botIsAdmin(chatId)) {
-await sendTemp(chatId, “❌ Necesito ser administrador para borrar mensajes.”);
-return;
-}
+if (!await isAdmin(chatId, userId)) { await sendTemp(chatId, “❌ Solo los administradores pueden usar este comando.”); return; }
+if (!await botIsAdmin(chatId)) { await sendTemp(chatId, “❌ Necesito ser administrador para borrar mensajes.”); return; }
 
 const count = parseInt(match?.[1] || “10”);
 const targetUsername = match?.[2]?.toLowerCase();
-
 if (isNaN(count) || count < 1 || count > 100) {
 await sendTemp(chatId, “❌ El número debe ser entre 1 y 100.\nUso: /purge 10 o /purge 10 @usuario”);
 return;
 }
 
 await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
-
 const log = messageLog.get(chatId) || [];
 let deleted = 0;
 
-if (targetUsername) {
-const userMessages = log
-.filter(m => m.username === targetUsername)
-.slice(-count)
-.reverse();
-for (const m of userMessages) {
-try {
-await bot.deleteMessage(chatId, m.messageId);
-deleted++;
-} catch {}
-}
-const deletedIds = new Set(userMessages.map(m => m.messageId));
-messageLog.set(chatId, log.filter(m => !deletedIds.has(m.messageId)));
-} else {
-const recent = log.slice(-count).reverse();
-for (const m of recent) {
-try {
-await bot.deleteMessage(chatId, m.messageId);
-deleted++;
-} catch {}
-}
-const deletedIds = new Set(recent.map(m => m.messageId));
-messageLog.set(chatId, log.filter(m => !deletedIds.has(m.messageId)));
+const targets = targetUsername
+? log.filter(m => m.username === targetUsername).slice(-count)
+: log.slice(-count);
+
+for (const m of […targets].reverse()) {
+try { await bot.deleteMessage(chatId, m.messageId); deleted++; } catch {}
 }
 
-const userText = targetUsername ? ` de @${targetUsername}` : “”;
-const confirm = await bot.sendMessage(
-chatId,
-`🗑 *${deleted} mensajes eliminados${userText}.*`,
-{ parse_mode: “Markdown” }
-);
+const deletedIds = new Set(targets.map(m => m.messageId));
+messageLog.set(chatId, log.filter(m => !deletedIds.has(m.messageId)));
+
+const confirm = await bot.sendMessage(chatId,
+`🗑 *${deleted} mensajes eliminados${targetUsername ? " de @" + targetUsername : ""}.*`,
+{ parse_mode: “Markdown” });
 setTimeout(() => bot.deleteMessage(chatId, confirm.message_id).catch(() => {}), 3000);
 });
 
-// FIX: Added /clear command that was advertised in /help but never implemented
-bot.onText(//clear/, async (msg) => {
+bot.onText(cmdExact(“clear”), async (msg) => {
+if (!isGroup(msg)) { await bot.sendMessage(msg.chat.id, “❌ Este comando solo funciona en grupos.”); return; }
 const chatId = msg.chat.id;
 const userId = msg.from?.id;
 if (!userId) return;
-
-if (!await isAdmin(chatId, userId)) {
-await sendTemp(chatId, “❌ Solo los administradores pueden usar /clear.”);
-return;
-}
-if (!await botIsAdmin(chatId)) {
-await sendTemp(chatId, “❌ Necesito ser administrador para borrar mensajes.”);
-return;
-}
+if (!await isAdmin(chatId, userId)) { await sendTemp(chatId, “❌ Solo los administradores pueden usar este comando.”); return; }
+if (!await botIsAdmin(chatId)) { await sendTemp(chatId, “❌ Necesito ser administrador para borrar mensajes.”); return; }
 
 await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
-
 const log = messageLog.get(chatId) || [];
 let deleted = 0;
 for (const m of […log].reverse()) {
-try {
-await bot.deleteMessage(chatId, m.messageId);
-deleted++;
-} catch {}
+try { await bot.deleteMessage(chatId, m.messageId); deleted++; } catch {}
 }
 messageLog.set(chatId, []);
 
@@ -320,17 +281,18 @@ setTimeout(() => bot.deleteMessage(chatId, confirm.message_id).catch(() => {}), 
 
 // ─── CHAT CONTROL COMMANDS ────────────────────────────────
 
-bot.onText(//lock(?:\s+(\S+))?/, async (msg, match) => {
+bot.onText(cmd(“lock”), async (msg, match) => {
+if (!isGroup(msg)) { await bot.sendMessage(msg.chat.id, “❌ Este comando solo funciona en grupos.”); return; }
 const chatId = msg.chat.id;
 const userId = msg.from?.id;
 if (!userId) return;
 if (!await isAdmin(chatId, userId)) { await sendTemp(chatId, “❌ Solo los administradores pueden bloquear el chat.”); return; }
 if (!await botIsAdmin(chatId)) { await sendTemp(chatId, “❌ Necesito ser administrador para bloquear el chat.”); return; }
-const durationStr = match?.[1];
+const durationStr = match?.[1]?.trim();
 let durationMs = null;
 if (durationStr) {
 durationMs = parseDuration(durationStr);
-if (!durationMs) { await sendTemp(chatId, “❌ Formato inválido. Usa: 30s, 5m, 1h”); return; }
+if (!durationMs) { await sendTemp(chatId, “❌ Formato inválido. Usa: 30s, 5m, 1h, 2d”); return; }
 }
 try {
 await bot.setChatPermissions(chatId, { can_send_messages: false, can_send_polls: false, can_send_other_messages: false, can_add_web_page_previews: false, can_change_info: false, can_invite_users: false, can_pin_messages: false });
@@ -347,7 +309,8 @@ await bot.sendMessage(chatId, `🔓 *Chat desbloqueado automáticamente.*`, { pa
 } catch { await bot.sendMessage(chatId, “❌ No se pudo bloquear el chat.”); }
 });
 
-bot.onText(//unlock/, async (msg) => {
+bot.onText(cmdExact(“unlock”), async (msg) => {
+if (!isGroup(msg)) { await bot.sendMessage(msg.chat.id, “❌ Este comando solo funciona en grupos.”); return; }
 const chatId = msg.chat.id;
 const userId = msg.from?.id;
 if (!userId) return;
@@ -359,7 +322,8 @@ await bot.sendMessage(chatId, `🔓 *Chat desbloqueado.*\nTodos pueden volver a 
 } catch { await bot.sendMessage(chatId, “❌ No se pudo desbloquear el chat.”); }
 });
 
-bot.onText(//pic/, async (msg) => {
+bot.onText(cmdExact(“pic”), async (msg) => {
+if (!isGroup(msg)) { await bot.sendMessage(msg.chat.id, “❌ Este comando solo funciona en grupos.”); return; }
 const chatId = msg.chat.id;
 const userId = msg.from?.id;
 if (!userId) return;
@@ -371,7 +335,8 @@ await bot.sendMessage(chatId, `🖼 *Envío de fotos desactivado.*`, { parse_mod
 } catch { await bot.sendMessage(chatId, “❌ No se pudo desactivar el envío de fotos.”); }
 });
 
-bot.onText(//picremove/, async (msg) => {
+bot.onText(cmdExact(“picremove”), async (msg) => {
+if (!isGroup(msg)) { await bot.sendMessage(msg.chat.id, “❌ Este comando solo funciona en grupos.”); return; }
 const chatId = msg.chat.id;
 const userId = msg.from?.id;
 if (!userId) return;
@@ -385,28 +350,29 @@ await bot.sendMessage(chatId, `🖼 *Envío de fotos reactivado.*`, { parse_mode
 
 // ─── GENERAL COMMANDS ─────────────────────────────────────
 
-bot.onText(//ping/, async (msg) => {
+bot.onText(cmdExact(“ping”), async (msg) => {
 const start = Date.now();
 const sent = await bot.sendMessage(msg.chat.id, “🏓 Calculando…”);
 const latency = Date.now() - start;
-await bot.editMessageText(`🏓 *Pong!*\n${DIVIDER}\n⚡ Latencia: \`${latency}ms``, { chat_id: msg.chat.id, message_id: sent.message_id, parse_mode: “Markdown” });
+await bot.editMessageText(`🏓 *Pong!*\n${DIVIDER}\n⚡ Latencia: \`${latency}ms``,
+{ chat_id: msg.chat.id, message_id: sent.message_id, parse_mode: “Markdown” });
 });
 
-bot.onText(//uptime/, async (msg) => {
-await bot.sendMessage(msg.chat.id, `⏱ *Uptime del Bot*\n${DIVIDER}\n🟢 Activo por: \`${formatUptime()}``, { parse_mode: “Markdown” });
-});
-
-bot.onText(//botstats/, async (msg) => {
-const mem = process.memoryUsage();
-const mbUsed = (mem.heapUsed / 1024 / 1024).toFixed(2);
-const mbTotal = (mem.heapTotal / 1024 / 1024).toFixed(2);
+bot.onText(cmdExact(“uptime”), async (msg) => {
 await bot.sendMessage(msg.chat.id,
-`📊 *Estadísticas del Bot*\n${DIVIDER}\n` +
-`⏱ Uptime: \`${formatUptime()}`\n`+`💾 Memoria: `${mbUsed} MB / ${mbTotal} MB`\n`+`🖥 Plataforma: `${os.platform()}`\n`+`🟢 Node.js: `${process.version}`\n${DIVIDER}`,
+`⏱ *Uptime del Bot*\n${DIVIDER}\n🟢 Activo por: \`${formatUptime()}``,
 { parse_mode: “Markdown” });
 });
 
-bot.onText(//about/, async (msg) => {
+bot.onText(cmdExact(“botstats”), async (msg) => {
+const mem = process.memoryUsage();
+await bot.sendMessage(msg.chat.id,
+`📊 *Estadísticas del Bot*\n${DIVIDER}\n` +
+`⏱ Uptime: \`${formatUptime()}`\n`+`💾 Memoria: `${(mem.heapUsed / 1024 / 1024).toFixed(2)} MB / ${(mem.heapTotal / 1024 / 1024).toFixed(2)} MB`\n`+`🖥 Plataforma: `${os.platform()}`\n`+`🟢 Node.js: `${process.version}`\n${DIVIDER}`,
+{ parse_mode: “Markdown” });
+});
+
+bot.onText(cmdExact(“about”), async (msg) => {
 const me = await bot.getMe();
 await bot.sendMessage(msg.chat.id,
 `🤖 *Sobre el Bot*\n${DIVIDER}\n` +
@@ -416,97 +382,60 @@ await bot.sendMessage(msg.chat.id,
 { parse_mode: “Markdown” });
 });
 
-bot.onText(//help/, async (msg) => {
+bot.onText(cmdExact(“help”), async (msg) => {
 await bot.sendMessage(msg.chat.id,
 `🤖 *Comandos Disponibles*\n${DIVIDER}\n` +
-`\n👤 *Info de Usuario*\n` +
-` /id — ID del usuario\n` +
-` /userinfo — Info del usuario\n` +
-` /whois — Info extendida\n` +
-` /pfp — Foto de perfil\n` +
-` /avatar — Avatar\n` +
-` /roleinfo — Info de rol\n` +
-`\n🏠 *Info del Grupo*\n` +
-` /serverinfo — Info del grupo\n` +
-` /chatstats — Estadísticas\n` +
-` /members — Número de miembros\n` +
-` /admins — Lista de admins\n` +
-`\n🛡 *Moderación* _(solo admins)_\n` +
-` /purge [n] — Borrar últimos N mensajes\n` +
-` /purge [n] @usuario — Borrar N mensajes de un usuario\n` +
-` /clear — Limpiar el chat\n` +
-`\n🔒 *Control del Chat* _(solo admins)_\n` +
-` /lock [tiempo] — Bloquear chat\n` +
-` /unlock — Desbloquear chat\n` +
-` /pic — Desactivar fotos\n` +
-` /picremove — Activar fotos\n` +
-`\n⚙️ *General*\n` +
-` /ping — Latencia\n` +
-` /uptime — Tiempo activo\n` +
-` /botstats — Estadísticas\n` +
-` /about — Sobre el bot\n` +
-` /help — Esta lista\n${DIVIDER}`,
+`_Usa \`/comando` o `!comando`_\n\n`+`👤 *Info de Usuario*\n`+` /id — ID del usuario\n`+` /userinfo — Info del usuario\n`+` /whois — Info extendida\n`+` /pfp — Foto de perfil\n`+` /avatar — Avatar\n`+` /roleinfo — Info de rol\n\n`+`🏠 *Info del Grupo*\n`+` /serverinfo — Info del grupo\n`+` /members — Número de miembros\n`+` /admins — Lista de admins\n\n`+`🛡 *Moderación* *(solo admins)*\n`+` /purge [n] — Borrar últimos N mensajes\n`+` /purge [n] @usuario — Borrar mensajes de usuario\n`+` /clear — Limpiar el chat\n\n`+`🔒 *Control del Chat* *(solo admins)*\n`+` /lock [tiempo] — Bloquear chat (ej: 10m, 1h)\n`+` /unlock — Desbloquear chat\n`+` /pic — Desactivar fotos\n`+` /picremove — Activar fotos\n\n`+`⚙️ *General*\n`+` /ping — Latencia\n`+` /uptime — Tiempo activo\n`+` /botstats — Estadísticas\n`+` /about — Sobre el bot\n`+` /help — Esta lista\n${DIVIDER}`,
 { parse_mode: “Markdown” });
 });
 
 // ─── @ALL MENTION ─────────────────────────────────────────
 
-// FIX: Separated from the logMessage handler - now its own clean handler
 bot.on(“message”, async (msg) => {
 if (!msg.text?.includes(”@all”)) return;
+if (!isGroup(msg)) return;
 const chatId = msg.chat.id;
 const userId = msg.from?.id;
 if (!userId) return;
-if (!await isAdmin(chatId, userId)) {
-await sendTemp(chatId, “❌ Solo los administradores pueden usar @all.”);
-return;
-}
+if (!await isAdmin(chatId, userId)) { await sendTemp(chatId, “❌ Solo los administradores pueden usar @all.”); return; }
 try {
 const count = await bot.getChatMemberCount(chatId);
 await bot.sendMessage(chatId,
 `📢 *Mención masiva* — ${count} miembros\n${DIVIDER}\n` +
 `👤 Por: ${msg.from?.first_name}\n` +
 `⚠️ Todos han sido notificados.`,
-{ parse_mode: “Markdown”, reply_to_message_id: msg.message_id }
-);
-} catch {
-await sendTemp(chatId, “❌ No se pudo mencionar a todos.”);
-}
+{ parse_mode: “Markdown”, reply_to_message_id: msg.message_id });
+} catch { await sendTemp(chatId, “❌ No se pudo mencionar a todos.”); }
 });
 
 // ─── AUTO REMOVE DELETED ACCOUNTS ────────────────────────
 
 bot.on(“message”, async (msg) => {
+if (!msg.from || msg.from.first_name !== “Deleted Account”) return;
+if (!isGroup(msg)) return;
 const chatId = msg.chat.id;
-if (msg.from && msg.from.first_name === “Deleted Account”) {
 if (!await botIsAdmin(chatId)) return;
 try {
 await bot.banChatMember(chatId, msg.from.id);
 await bot.unbanChatMember(chatId, msg.from.id);
 await bot.sendMessage(chatId,
-`🗑 *Cuenta eliminada removida*\n${DIVIDER}\n` +
-`🔢 ID: \`${msg.from.id}`\n`+`✅ Removido automáticamente.`,
-{ parse_mode: “Markdown” }
-);
+`🗑 *Cuenta eliminada removida*\n${DIVIDER}\n🔢 ID: \`${msg.from.id}`\n✅ Removido automáticamente.`,
+{ parse_mode: “Markdown” });
 } catch {}
-}
 });
 
 bot.on(“chat_member”, async (update) => {
 const chatId = update.chat.id;
 const user = update.new_chat_member.user;
-if (user.first_name === “Deleted Account”) {
+if (user.first_name !== “Deleted Account”) return;
 if (!await botIsAdmin(chatId)) return;
 try {
 await bot.banChatMember(chatId, user.id);
 await bot.unbanChatMember(chatId, user.id);
 await bot.sendMessage(chatId,
-`🗑 *Cuenta eliminada removida*\n${DIVIDER}\n` +
-`🔢 ID: \`${user.id}`\n`+`✅ Removido automáticamente.`,
-{ parse_mode: “Markdown” }
-);
+`🗑 *Cuenta eliminada removida*\n${DIVIDER}\n🔢 ID: \`${user.id}`\n✅ Removido automáticamente.`,
+{ parse_mode: “Markdown” });
 } catch {}
-}
 });
 
 // ─── CHAT & USER UPDATE TRACKER ──────────────────────────
@@ -514,52 +443,37 @@ await bot.sendMessage(chatId,
 bot.on(“message”, async (msg) => {
 const chatId = msg.chat.id;
 
-// FIX: Removed duplicate new_chat_member handler here.
-// Welcome messages are handled by the dedicated welcome handler below.
-// This handler only tracks title/photo/pin changes and member leaves.
-
 if (msg.left_chat_member) {
 const user = msg.left_chat_member;
 const removedBy = msg.from;
 const wasKicked = removedBy && removedBy.id !== user.id;
-const action = wasKicked
-? `🚫 *Miembro eliminado*\n${DIVIDER}\n` +
-`👤 ${user.first_name}${user.last_name ? " " + user.last_name : ""}\n` +
-`🔖 ${user.username ? "@" + user.username : "Sin username"}\n` +
-`🔢 ID: \`${user.id}`\n`+`👮 Eliminado por: ${removedBy.first_name}${removedBy.username ? “ (@” + removedBy.username + “)” : “”}`:`👋 *Miembro salió*\n${DIVIDER}\n`+`👤 ${user.first_name}${user.last_name ? “ “ + user.last_name : “”}\n`+`🔖 ${user.username ? “@” + user.username : “Sin username”}\n`+`🔢 ID: `${user.id}``;
-
-```
-await bot.sendMessage(chatId, action, { parse_mode: "Markdown" });
-```
-
+await bot.sendMessage(chatId,
+wasKicked
+? `🚫 *Miembro eliminado*\n${DIVIDER}\n👤 ${user.first_name}${user.last_name ? " " + user.last_name : ""}\n🔖 ${user.username ? "@" + user.username : "Sin username"}\n🔢 ID: \`${user.id}`\n👮 Por: ${removedBy.first_name}${removedBy.username ? “ (@” + removedBy.username + “)” : “”}`:`👋 *Miembro salió*\n${DIVIDER}\n👤 ${user.first_name}${user.last_name ? “ “ + user.last_name : “”}\n🔖 ${user.username ? “@” + user.username : “Sin username”}\n🔢 ID: `${user.id}``,
+{ parse_mode: “Markdown” });
 }
 
 if (msg.new_chat_title) {
 await bot.sendMessage(chatId,
-`✏️ *Nombre del grupo cambiado*\n${DIVIDER}\n` +
-`📛 Nuevo nombre: *${msg.new_chat_title}*\n` +
-`👤 Cambiado por: ${msg.from?.first_name || "Desconocido"}`,
+`✏️ *Nombre del grupo cambiado*\n${DIVIDER}\n📛 Nuevo nombre: *${msg.new_chat_title}*\n👤 Por: ${msg.from?.first_name || "Desconocido"}`,
 { parse_mode: “Markdown” });
 }
 
 if (msg.new_chat_photo) {
 await bot.sendMessage(chatId,
-`🖼 *Foto del grupo cambiada*\n${DIVIDER}\n` +
-`👤 Cambiado por: ${msg.from?.first_name || "Desconocido"}`,
+`🖼 *Foto del grupo cambiada*\n${DIVIDER}\n👤 Por: ${msg.from?.first_name || "Desconocido"}`,
 { parse_mode: “Markdown” });
 }
 
 if (msg.delete_chat_photo) {
 await bot.sendMessage(chatId,
-`🗑 *Foto del grupo eliminada*\n${DIVIDER}\n` +
-`👤 Eliminado por: ${msg.from?.first_name || "Desconocido"}`,
+`🗑 *Foto del grupo eliminada*\n${DIVIDER}\n👤 Por: ${msg.from?.first_name || "Desconocido"}`,
 { parse_mode: “Markdown” });
 }
 
 if (msg.pinned_message) {
 await bot.sendMessage(chatId,
-`📌 *Mensaje anclado*\n${DIVIDER}\n` +
-`👤 Anclado por: ${msg.from?.first_name || "Desconocido"}`,
+`📌 *Mensaje anclado*\n${DIVIDER}\n👤 Por: ${msg.from?.first_name || "Desconocido"}`,
 { parse_mode: “Markdown” });
 }
 });
@@ -571,51 +485,33 @@ const newUser = update.new_chat_member.user;
 const changes = [];
 
 if (oldUser.username !== newUser.username) {
-changes.push(
-`🔖 *Username cambiado*\n` +
-` Antes: ${oldUser.username ? "@" + oldUser.username : "Sin username"}\n` +
-` Ahora: ${newUser.username ? "@" + newUser.username : "Sin username"}`
-);
+changes.push(`🔖 *Username cambiado*\n Antes: ${oldUser.username ? "@" + oldUser.username : "Sin username"}\n Ahora: ${newUser.username ? "@" + newUser.username : "Sin username"}`);
 }
-
 if (oldUser.first_name !== newUser.first_name || oldUser.last_name !== newUser.last_name) {
-changes.push(
-`📛 *Nombre cambiado*\n` +
-` Antes: ${oldUser.first_name}${oldUser.last_name ? " " + oldUser.last_name : ""}\n` +
-` Ahora: ${newUser.first_name}${newUser.last_name ? " " + newUser.last_name : ""}`
-);
+changes.push(`📛 *Nombre cambiado*\n Antes: ${oldUser.first_name}${oldUser.last_name ? " " + oldUser.last_name : ""}\n Ahora: ${newUser.first_name}${newUser.last_name ? " " + newUser.last_name : ""}`);
 }
 
 if (changes.length > 0) {
 await bot.sendMessage(chatId,
-`🔔 *Actualización de Usuario*\n${DIVIDER}\n` +
-`👤 Usuario: ${newUser.first_name} (\`${newUser.id}`)\n`+ changes.join("\n") +`\n${DIVIDER}`,
+`🔔 *Actualización de Usuario*\n${DIVIDER}\n👤 ${newUser.first_name} (\`${newUser.id}`)\n`+ changes.join("\n") +`\n${DIVIDER}`,
 { parse_mode: “Markdown” });
 }
 });
 
 // ─── /iniciar COMMAND ─────────────────────────────────────
 
-bot.onText(//iniciar/, async (msg) => {
+bot.onText(cmdExact(“iniciar”), async (msg) => {
 await bot.sendMessage(msg.chat.id,
-`👋 *Bienvenido a El Cartel De Las Mamacitas*\n${DIVIDER}\n` +
-`🤖 Bot multipropósito activo y listo.\n` +
-`Selecciona una opción del menú:`,
+`👋 *Bienvenido a El Cartel De Las Mamacitas*\n${DIVIDER}\n🤖 Bot multipropósito activo y listo.\nSelecciona una opción:`,
 {
 parse_mode: “Markdown”,
 reply_markup: {
 inline_keyboard: [
-[
-{ text: “📋 Help”, callback_data: “help” },
-],
-[
-{ text: “🏓 Ping”, callback_data: “ping” },
-{ text: “🏠 Server Info”, callback_data: “serverinfo” },
-]
+[{ text: “📋 Help”, callback_data: “help” }],
+[{ text: “🏓 Ping”, callback_data: “ping” }, { text: “🏠 Server Info”, callback_data: “serverinfo” }]
 ]
 }
-}
-);
+});
 });
 
 // ─── BUTTON HANDLERS ──────────────────────────────────────
@@ -628,34 +524,8 @@ if (query.data === “help”) {
 await bot.answerCallbackQuery(query.id);
 await bot.sendMessage(chatId,
 `🤖 *Comandos Disponibles*\n${DIVIDER}\n` +
-`\n👤 *Info de Usuario*\n` +
-` /id — ID del usuario\n` +
-` /userinfo — Info del usuario\n` +
-` /whois — Info extendida\n` +
-` /pfp — Foto de perfil\n` +
-` /avatar — Avatar\n` +
-` /roleinfo — Info de rol\n` +
-`\n🏠 *Info del Grupo*\n` +
-` /serverinfo — Info del grupo\n` +
-` /chatstats — Estadísticas\n` +
-` /members — Número de miembros\n` +
-` /admins — Lista de admins\n` +
-`\n🛡 *Moderación* _(solo admins)_\n` +
-` /purge [n] — Borrar últimos N mensajes\n` +
-` /clear — Limpiar el chat\n` +
-`\n🔒 *Control del Chat* _(solo admins)_\n` +
-` /lock [tiempo] — Bloquear chat\n` +
-` /unlock — Desbloquear chat\n` +
-` /pic — Desactivar fotos\n` +
-` /picremove — Activar fotos\n` +
-`\n⚙️ *General*\n` +
-` /ping — Latencia\n` +
-` /uptime — Tiempo activo\n` +
-` /botstats — Estadísticas\n` +
-` /about — Sobre el bot\n` +
-` /help — Esta lista\n${DIVIDER}`,
-{ parse_mode: “Markdown” }
-);
+`_Usa \`/comando` o `!comando`_\n\n`+`👤 *Info de Usuario*\n /id /userinfo /whois /pfp /avatar /roleinfo\n\n`+`🏠 *Info del Grupo*\n /serverinfo /members /admins\n\n`+`🛡 *Moderación* *(admins)*\n /purge [n] /purge [n] @user /clear\n\n`+`🔒 *Chat* *(admins)*\n /lock [tiempo] /unlock /pic /picremove\n\n`+`⚙️ *General*\n /ping /uptime /botstats /about /help\n${DIVIDER}`,
+{ parse_mode: “Markdown” });
 }
 
 if (query.data === “ping”) {
@@ -663,14 +533,15 @@ await bot.answerCallbackQuery(query.id);
 const start = Date.now();
 const sent = await bot.sendMessage(chatId, “🏓 Calculando…”);
 const latency = Date.now() - start;
-await bot.editMessageText(
-`🏓 *Pong!*\n${DIVIDER}\n⚡ Latencia: \`${latency}ms``,
-{ chat_id: chatId, message_id: sent.message_id, parse_mode: “Markdown” }
-);
+await bot.editMessageText(`🏓 *Pong!*\n${DIVIDER}\n⚡ Latencia: \`${latency}ms``,
+{ chat_id: chatId, message_id: sent.message_id, parse_mode: “Markdown” });
 }
 
 if (query.data === “serverinfo”) {
 await bot.answerCallbackQuery(query.id);
+if (![“group”, “supergroup”].includes(msg.chat.type)) {
+await bot.sendMessage(chatId, “❌ Este comando solo funciona en grupos.”); return;
+}
 try {
 const chat = await bot.getChat(chatId);
 const memberCount = await bot.getChatMemberCount(chatId);
@@ -679,11 +550,8 @@ await bot.sendMessage(chatId,
 `🏠 *Info del Grupo*\n${DIVIDER}\n` +
 `📛 Nombre: ${chat.title || "Sin nombre"}\n` +
 `🔢 ID: \`${chat.id}`\n`+`🔗 Username: ${chat.username ? “@” + chat.username : “Sin username”}\n`+`👥 Miembros: ${memberCount}\n`+`🛡 Admins: ${admins.length}\n`+`📝 Tipo: ${chat.type}\n${DIVIDER}`,
-{ parse_mode: “Markdown” }
-);
-} catch {
-await bot.sendMessage(chatId, “❌ Error al obtener info del grupo.”);
-}
+{ parse_mode: “Markdown” });
+} catch { await bot.sendMessage(chatId, “❌ Error al obtener info del grupo.”); }
 }
 });
 
@@ -694,25 +562,21 @@ if (!msg.new_chat_members) return;
 const chatId = msg.chat.id;
 for (const user of msg.new_chat_members) {
 if (user.is_bot) continue;
-const name = user.first_name;
-const username = user.username ? `@${user.username}` : name;
+const username = user.username ? `@${user.username}` : user.first_name;
 const memberCount = await bot.getChatMemberCount(chatId).catch(() => “?”);
 await bot.sendMessage(chatId,
 `✨ *Bienvenida al Cartel* ✨\n${DIVIDER}\n` +
 `👋 Hola ${username}, nos alegra tenerte aquí.\n\n` +
 `🏠 *El Cartel De Las Mamacitas*\n` +
 `👥 Ahora somos *${memberCount}* miembros.\n\n` +
-`📌 Usa /help para ver todo lo que puedes hacer.\n` +
-`${DIVIDER}`,
-{ parse_mode: “Markdown” }
-);
+`📌 Usa /help para ver todo lo que puedes hacer.\n${DIVIDER}`,
+{ parse_mode: “Markdown” });
 }
 });
 
-// ─── DELETE DEFAULT TELEGRAM SYSTEM MESSAGES ─────────────
+// ─── DELETE TELEGRAM SYSTEM MESSAGES ─────────────────────
 
 bot.on(“message”, async (msg) => {
-const chatId = msg.chat.id;
 if (
 msg.new_chat_members ||
 msg.left_chat_member ||
@@ -721,21 +585,14 @@ msg.new_chat_photo ||
 msg.delete_chat_photo ||
 msg.pinned_message
 ) {
-try {
-await bot.deleteMessage(chatId, msg.message_id);
-} catch {}
+try { await bot.deleteMessage(msg.chat.id, msg.message_id); } catch {}
 }
 });
 
 // ─── ERROR HANDLER ────────────────────────────────────────
 
-bot.on(“polling_error”, (error) => {
-console.error(“❌ Error de polling:”, error.message);
-});
-
-process.on(“unhandledRejection”, (reason) => {
-console.error(“❌ Promesa rechazada:”, reason);
-});
+bot.on(“polling_error”, (error) => console.error(“❌ Error de polling:”, error.message));
+process.on(“unhandledRejection”, (reason) => console.error(“❌ Promesa rechazada:”, reason));
 
 // ─── EXPRESS SERVER ───────────────────────────────────────
 
