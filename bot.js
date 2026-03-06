@@ -649,6 +649,50 @@ bot.on("callback_query", async (query) => {
   }
 });
 
+// ─── WELCOME MESSAGE ──────────────────────────────────────
+
+bot.on("message", async (msg) => {
+  if (!msg.new_chat_members) return;
+  const chatId = msg.chat.id;
+
+  for (const user of msg.new_chat_members) {
+    if (user.is_bot) continue;
+
+    const name = user.first_name;
+    const username = user.username ? `@${user.username}` : name;
+    const memberCount = await bot.getChatMemberCount(chatId).catch(() => "?");
+
+    await bot.sendMessage(chatId,
+      `✨ *Bienvenida al Cartel* ✨\n${DIVIDER}\n` +
+      `👋 Hola ${username}, nos alegra tenerte aquí.\n\n` +
+      `🏠 *El Cartel De Las Mamacitas*\n` +
+      `👥 Ahora somos *${memberCount}* miembros.\n\n` +
+      `📌 Usa /help para ver todo lo que puedes hacer.\n` +
+      `${DIVIDER}`,
+      { parse_mode: "Markdown" }
+    );
+  }
+});
+
+// ─── DELETE DEFAULT TELEGRAM SYSTEM MESSAGES ─────────────
+
+bot.on("message", async (msg) => {
+  const chatId = msg.chat.id;
+  
+  if (
+    msg.new_chat_members ||
+    msg.left_chat_member ||
+    msg.new_chat_title ||
+    msg.new_chat_photo ||
+    msg.delete_chat_photo ||
+    msg.pinned_message
+  ) {
+    try {
+      await bot.deleteMessage(chatId, msg.message_id);
+    } catch {}
+  }
+});
+
 // ─── ERROR HANDLER ────────────────────────────────────────
 
 bot.on("polling_error", (error) => {
