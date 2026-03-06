@@ -211,48 +211,99 @@ bot.onText(/\/roleinfo(?:\s+(.+))?/, async (msg, match) => {
 
 // ─── MODERATION COMMANDS ──────────────────────────────────
 
-bot.onText(/\/purge(?:\s+(\d+))?/, async (msg, match) => {
+// ─── MESSAGE LOG (stores last 500 messages per chat) ──────
+
+const messageLog = new Map();
+
+bot.on("message", async (msg) => {
+  if (!msg.text && !msg.photo && !msg.video && !msg.sticker) return;
   const chatId = msg.chat.id;
   const userId = msg.from?.id;
-  if (!userId) return;
-  if (!await isAdmin(chatId, userId)) { await sendTemp(chatId, "❌ Solo los administradores pueden usar /purge."); return; }
-  if (!await botIsAdmin(chatId)) { await sendTemp(chatId, "❌ Necesito ser administrador para borrar mensajes."); return; }
-  const count = parseInt(match?.[1] || "10");
-  if (isNaN(count) || count < 1 || count > 100) { await sendTemp(chatId, "❌ El número debe ser entre 1 y 100."); return; }
-  await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
-  let deleted = 0;
-  let messageId = msg.message_id - 1;
-  while (deleted < count && messageId > 0) {
-    try { await bot.deleteMessage(chatId, messageId); deleted++; } catch {}
-    messageId--;
+  const username = msg.from?.username?.toLowerCase();
+  const messageId = msg.message_id;
+
+  if (!messageLog.has(chatId)) {
+    messageLog.set(chatId, []);
   }
-  const confirm = await bot.sendMessage(chatId, `🗑 *${deleted} mensajes eliminados.*`, { parse_mode: "Markdown" });
-  setTimeout(() => bot.deleteMessage(chatId, confirm.message_id).catch(() => {}), 3000);
+
+  const log = messageLog.get(chatId);
+  log.push({ messageId, userId, username });
+
+  // Keep only last 500 messages per chat
+  if (log.length > 500) log.shift();
 });
 
-const pendingClear = new Set();
-bot.onText(/\/clear/, async (msg) => {
+// ─── MODERATION COMMANDS ──────────────────────────────────
+
+bot.onText(/\/purge(?:\s+(\d+))?(?:\s+@(\S+))?/, async (msg, match) => {
   const chatId = msg.chat.id;
   const userId = msg.from?.id;
   if (!userId) return;
-  if (!await isAdmin(chatId, userId)) { await sendTemp(chatId, "❌ Solo los administradores pueden usar /clear."); return; }
-  if (!await botIsAdmin(chatId)) { await sendTemp(chatId, "❌ Necesito ser administrador para borrar mensajes."); return; }
-  if (pendingClear.has(chatId)) {
-    pendingClear.delete(chatId);
-    await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
-    let messageId = msg.message_id - 1;
-    let deleted = 0;
-    while (messageId > 0 && deleted < 100) {
-      try { await bot.deleteMessage(chatId, messageId); deleted++; } catch {}
-      messageId--;
-    }
-    const confirm = await bot.sendMessage(chatId, `🗑 *Chat limpiado. ${deleted} mensajes eliminados.*`, { parse_mode: "Markdown" });
-    setTimeout(() => bot.deleteMessage(chatId, confirm.message_id).catch(() => {}), 3000);
-  } else {
-    pendingClear.add(chatId);
-    const warn = await bot.sendMessage(chatId, `⚠️ *¿Confirmas limpiar el chat?*\nEscribe /clear de nuevo para confirmar.`, { parse_mode: "Markdown" });
-    setTimeout(() => { pendingClear.delete(chatId); bot.deleteMessage(chatId, warn.message_id).catch(() => {}); }, 15000);
+
+  if (!await isAdmin(chatId, userId)) {
+    await sendTemp(chatId, "❌ Solo los administradores pueden usar /purge.");
+    return;
   }
+  if (!await botIsAdmin(chatId)) {
+    await sendTemp(chatId, "❌ Necesito ser administrador para borrar mensajes.");
+    return;
+  }
+
+  const count = parseInt(match?.[1] || "10");
+  const targetUsername = match?.[2]?.toLowerCase();
+
+  if (isNaN(count) || count < 1 || count > 100) {
+    await sendTemp(chatId, "❌ El número debe ser entre 1 y 100.\nUso: /purge 10 o /purge 10 @usuario");
+    return;
+  }
+
+  // Delete the command message itself
+  await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+
+  const log = messageLog.get(chatId) || [];
+  let deleted = 0;
+
+  if (targetUsername) {
+    // Filter messages by username from the log
+    const userMessages = log
+      .filter(m => m.username === targetUsername)
+      .slice(-count)
+      .reverse();
+
+    for (const m of userMessages) {
+      try {
+        await bot.deleteMessage(chatId, m.messageId);
+        deleted++;
+      } catch {}
+    }
+
+    // Remove deleted messages from log
+    const deletedIds = new Set(userMessages.map(m => m.messageId));
+    messageLog.set(chatId, log.filter(m => !deletedIds.has(m.messageId)));
+
+  } else {
+    // No user filter — delete last N messages
+    const recent = log.slice(-count).reverse();
+
+    for (const m of recent) {
+      try {
+        await bot.deleteMessage(chatId, m.messageId);
+        deleted++;
+      } catch {}
+    }
+
+    // Remove deleted messages from log
+    const deletedIds = new Set(recent.map(m => m.messageId));
+    messageLog.set(chatId, log.filter(m => !deletedIds.has(m.messageId)));
+  }
+
+  const userText = targetUsername ? ` de @${targetUsername}` : "";
+  const confirm = await bot.sendMessage(
+    chatId,
+    `🗑 *${deleted} mensajes eliminados${userText}.*`,
+    { parse_mode: "Markdown" }
+  );
+  setTimeout(() => bot.deleteMessage(chatId, confirm.message_id).catch(() => {}), 3000);
 });
 
 // ─── CHAT CONTROL COMMANDS ────────────────────────────────
