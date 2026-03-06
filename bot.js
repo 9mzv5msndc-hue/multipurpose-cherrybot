@@ -552,6 +552,103 @@ bot.on("chat_member", async (update) => {
   }
 });
 
+// ─── /iniciar COMMAND ─────────────────────────────────────
+
+bot.onText(/\/iniciar/, async (msg) => {
+  await bot.sendMessage(msg.chat.id,
+    `👋 *Bienvenido a El Cartel De Las Mamacitas*\n${DIVIDER}\n` +
+    `🤖 Bot multipropósito activo y listo.\n` +
+    `Selecciona una opción del menú:`,
+    {
+      parse_mode: "Markdown",
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "📋 Help", callback_data: "help" },
+          ],
+          [
+            { text: "🏓 Ping", callback_data: "ping" },
+            { text: "🏠 Server Info", callback_data: "serverinfo" },
+          ]
+        ]
+      }
+    }
+  );
+});
+
+// ─── BUTTON HANDLERS ──────────────────────────────────────
+
+bot.on("callback_query", async (query) => {
+  const msg = query.message;
+  const chatId = msg.chat.id;
+
+  if (query.data === "help") {
+    await bot.answerCallbackQuery(query.id);
+    await bot.sendMessage(chatId,
+      `🤖 *Comandos Disponibles*\n${DIVIDER}\n` +
+      `\n👤 *Info de Usuario*\n` +
+      `  /id — ID del usuario\n` +
+      `  /userinfo — Info del usuario\n` +
+      `  /whois — Info extendida\n` +
+      `  /pfp — Foto de perfil\n` +
+      `  /avatar — Avatar\n` +
+      `  /roleinfo — Info de rol\n` +
+      `\n🏠 *Info del Grupo*\n` +
+      `  /serverinfo — Info del grupo\n` +
+      `  /chatstats — Estadísticas\n` +
+      `  /members — Número de miembros\n` +
+      `  /admins — Lista de admins\n` +
+      `\n🛡 *Moderación* _(solo admins)_\n` +
+      `  /purge [n] — Borrar últimos N mensajes\n` +
+      `  /clear — Limpiar el chat\n` +
+      `\n🔒 *Control del Chat* _(solo admins)_\n` +
+      `  /lock [tiempo] — Bloquear chat\n` +
+      `  /unlock — Desbloquear chat\n` +
+      `  /pic — Desactivar fotos\n` +
+      `  /picremove — Activar fotos\n` +
+      `\n⚙️ *General*\n` +
+      `  /ping — Latencia\n` +
+      `  /uptime — Tiempo activo\n` +
+      `  /botstats — Estadísticas\n` +
+      `  /about — Sobre el bot\n` +
+      `  /help — Esta lista\n${DIVIDER}`,
+      { parse_mode: "Markdown" }
+    );
+  }
+
+  if (query.data === "ping") {
+    await bot.answerCallbackQuery(query.id);
+    const start = Date.now();
+    const sent = await bot.sendMessage(chatId, "🏓 Calculando...");
+    const latency = Date.now() - start;
+    await bot.editMessageText(
+      `🏓 *Pong!*\n${DIVIDER}\n⚡ Latencia: \`${latency}ms\``,
+      { chat_id: chatId, message_id: sent.message_id, parse_mode: "Markdown" }
+    );
+  }
+
+  if (query.data === "serverinfo") {
+    await bot.answerCallbackQuery(query.id);
+    try {
+      const chat = await bot.getChat(chatId);
+      const memberCount = await bot.getChatMemberCount(chatId);
+      const admins = await bot.getChatAdministrators(chatId);
+      await bot.sendMessage(chatId,
+        `🏠 *Info del Grupo*\n${DIVIDER}\n` +
+        `📛 Nombre: ${chat.title || "Sin nombre"}\n` +
+        `🔢 ID: \`${chat.id}\`\n` +
+        `🔗 Username: ${chat.username ? "@" + chat.username : "Sin username"}\n` +
+        `👥 Miembros: ${memberCount}\n` +
+        `🛡 Admins: ${admins.length}\n` +
+        `📝 Tipo: ${chat.type}\n${DIVIDER}`,
+        { parse_mode: "Markdown" }
+      );
+    } catch {
+      await bot.sendMessage(chatId, "❌ Error al obtener info del grupo.");
+    }
+  }
+});
+
 // ─── ERROR HANDLER ────────────────────────────────────────
 
 bot.on("polling_error", (error) => {
