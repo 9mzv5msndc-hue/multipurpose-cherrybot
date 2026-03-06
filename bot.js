@@ -389,6 +389,75 @@ bot.onText(/\/help/, async (msg) => {
     { parse_mode: "Markdown" });
 });
 
+// ─── @ALL MENTION ─────────────────────────────────────────
+
+bot.on("message", async (msg) => {
+  if (!msg.text?.includes("@all")) return;
+  const chatId = msg.chat.id;
+  const userId = msg.from?.id;
+  if (!userId) return;
+
+  if (!await isAdmin(chatId, userId)) {
+    await sendTemp(chatId, "❌ Solo los administradores pueden usar @all.");
+    return;
+  }
+
+  try {
+    const members = await bot.getChatAdministrators(chatId);
+    const count = await bot.getChatMemberCount(chatId);
+    
+    await bot.sendMessage(chatId,
+      `📢 *Mención masiva* — ${count} miembros\n${DIVIDER}\n` +
+      `👤 Por: ${msg.from?.first_name}\n` +
+      `⚠️ Todos han sido notificados.`,
+      { parse_mode: "Markdown", reply_to_message_id: msg.message_id }
+    );
+  } catch {
+    await sendTemp(chatId, "❌ No se pudo mencionar a todos.");
+  }
+});
+
+// ─── AUTO REMOVE DELETED ACCOUNTS ────────────────────────
+
+bot.on("message", async (msg) => {
+  const chatId = msg.chat.id;
+
+  // Check if sender is a deleted account
+  if (msg.from && msg.from.first_name === "Deleted Account") {
+    if (!await botIsAdmin(chatId)) return;
+    try {
+      await bot.banChatMember(chatId, msg.from.id);
+      await bot.unbanChatMember(chatId, msg.from.id);
+      await bot.sendMessage(chatId,
+        `🗑 *Cuenta eliminada removida*\n${DIVIDER}\n` +
+        `🔢 ID: \`${msg.from.id}\`\n` +
+        `✅ Removido automáticamente.`,
+        { parse_mode: "Markdown" }
+      );
+    } catch {}
+  }
+});
+
+// Also check when new members join
+bot.on("chat_member", async (update) => {
+  const chatId = update.chat.id;
+  const user = update.new_chat_member.user;
+
+  if (user.first_name === "Deleted Account") {
+    if (!await botIsAdmin(chatId)) return;
+    try {
+      await bot.banChatMember(chatId, user.id);
+      await bot.unbanChatMember(chatId, user.id);
+      await bot.sendMessage(chatId,
+        `🗑 *Cuenta eliminada removida*\n${DIVIDER}\n` +
+        `🔢 ID: \`${user.id}\`\n` +
+        `✅ Removido automáticamente.`,
+        { parse_mode: "Markdown" }
+      );
+    } catch {}
+  }
+});
+
 // ─── CHAT & USER UPDATE TRACKER ──────────────────────────
 
 bot.on("message", async (msg) => {
