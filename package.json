@@ -2,9 +2,9 @@
   "name": "telegram-multipurpose-bot",
   "version": "1.0.0",
   "description": "Multipurpose Telegram bot",
-  "main": "bot.cjs",
+  "main": "bot.js",
   "scripts": {
-    "start": "node bot.cjs"
+    "start": "node bot.js"
   },
   "dependencies": {
     "express": "^4.18.2",
