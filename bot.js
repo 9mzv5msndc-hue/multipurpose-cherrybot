@@ -482,6 +482,19 @@ bot.on("message", async function(msg) {
   }
 });
 
+// ─── !SAY COMMAND ─────────────────────────────────────────
+
+bot.onText(cmd("say"), async function(msg, match) {
+  const text = match && match[1] ? match[1].trim() : null;
+  if (!text) { await sendTemp(msg.chat.id, "❌ Usa: !say [mensaje]"); return; }
+  const userId = msg.from && msg.from.id;
+  if (!await isAdmin(msg.chat.id, userId)) { await sendTemp(msg.chat.id, "❌ Solo los administradores pueden usar este comando."); return; }
+  try {
+    await bot.deleteMessage(msg.chat.id, msg.message_id);
+  } catch {}
+  await bot.sendMessage(msg.chat.id, text);
+});
+
 bot.on("polling_error", function(error) { console.error("❌ Error de polling:", error.message); });
 process.on("unhandledRejection", function(reason) { console.error("❌ Promesa rechazada:", reason); });
 
