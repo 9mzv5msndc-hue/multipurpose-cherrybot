@@ -489,10 +489,8 @@ bot.onText(cmd("say"), async function(msg, match) {
   if (!text) { await sendTemp(msg.chat.id, "❌ Usa: !say [mensaje]"); return; }
   const userId = msg.from && msg.from.id;
   if (!await isAdmin(msg.chat.id, userId)) { await sendTemp(msg.chat.id, "❌ Solo los administradores pueden usar este comando."); return; }
-  try {
-    await bot.deleteMessage(msg.chat.id, msg.message_id);
-  } catch {}
-  await bot.sendMessage(msg.chat.id, text);
+  try { await bot.deleteMessage(msg.chat.id, msg.message_id); } catch {}
+  await bot.sendMessage(msg.chat.id, text, { disable_web_page_preview: true });
 });
 
 bot.on("polling_error", function(error) { console.error("❌ Error de polling:", error.message); });
