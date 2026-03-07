@@ -6,7 +6,6 @@ const TOKEN = process.env.TELEGRAM_TOKEN;
 if (!TOKEN) { console.error("❌ TELEGRAM_TOKEN no está configurado."); process.exit(1); }
 
 const bot = new TelegramBot(TOKEN, { polling: true });
-bot.deleteWebhook();
 const startTime = new Date();
 const DIVIDER = "━━━━━━━━━━━━━━━━━━";
 
