@@ -467,6 +467,21 @@ bot.on("message", async function(msg) {
   }
 });
 
+// ─── AUTO DELETE FORWARDED MESSAGES ──────────────────────
+
+bot.on("message", async function(msg) {
+  if (!isGroup(msg)) return;
+  if (msg.forward_from || msg.forward_from_chat || msg.forward_sender_name || msg.forward_date) {
+    try {
+      await bot.deleteMessage(msg.chat.id, msg.message_id);
+      const warn = await bot.sendMessage(msg.chat.id,
+        "🚫 *Mensajes reenviados no están permitidos.*\n" + DIVIDER + "\n👤 " + (msg.from.first_name || "Usuario") + " su mensaje fue eliminado.",
+        { parse_mode: "Markdown" });
+      setTimeout(function() { bot.deleteMessage(msg.chat.id, warn.message_id).catch(() => {}); }, 5000);
+    } catch {}
+  }
+});
+
 bot.on("polling_error", function(error) { console.error("❌ Error de polling:", error.message); });
 process.on("unhandledRejection", function(reason) { console.error("❌ Promesa rechazada:", reason); });
 
